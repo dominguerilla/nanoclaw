@@ -1,0 +1,13 @@
+[Unit]
+Description=NanoClaw OLED Status
+After=nanoclaw.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/mondo/Projects/nanoclaw/monitor/oled.py
+Restart=always
+RestartSec=10
+Environment=NANOCLAW_DATA_DIR=/home/mondo/Projects/nanoclaw/data
+
+[Install]
+WantedBy=default.target

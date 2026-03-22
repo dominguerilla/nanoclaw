@@ -1,0 +1,20 @@
+[Unit]
+Description=NanoClaw LCD Dashboard
+After=nanoclaw.service
+
+[Service]
+Type=simple
+User=mondo
+ExecStartPre=+/bin/chvt 2
+ExecStart=/usr/bin/node /home/mondo/Projects/nanoclaw/dist/monitor/lcd.js
+Restart=always
+RestartSec=5
+Environment=TERM=linux
+Environment=NANOCLAW_DATA_DIR=/home/mondo/Projects/nanoclaw/data
+StandardInput=tty
+StandardOutput=tty
+TTYPath=/dev/tty2
+TTYReset=yes
+
+[Install]
+WantedBy=multi-user.target
