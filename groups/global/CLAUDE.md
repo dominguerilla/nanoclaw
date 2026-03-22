@@ -56,3 +56,14 @@ NEVER use markdown. Only use WhatsApp/Telegram formatting:
 - ```triple backticks``` for code
 
 No ## headings. No [links](url). No **double stars**.
+
+---
+
+## Self-Reflection Guidelines
+
+When running daily reflection cycles, look for:
+- Recurring user requests that aren't being handled well
+- Errors or slowness in container logs
+- Improvements to CLAUDE.md files that would benefit all groups
+
+Update this file only for facts that apply to ALL groups.
