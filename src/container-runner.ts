@@ -336,7 +336,9 @@ function buildContainerLog(opts: ContainerLogOpts): string[] {
       `Session ID: ${input.sessionId || 'new'}`,
       ``,
       `=== Mounts ===`,
-      mounts.map((m) => `${m.containerPath}${m.readonly ? ' (ro)' : ''}`).join('\n'),
+      mounts
+        .map((m) => `${m.containerPath}${m.readonly ? ' (ro)' : ''}`)
+        .join('\n'),
       ``,
     );
   }
