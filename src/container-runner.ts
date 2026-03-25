@@ -264,6 +264,86 @@ function buildContainerArgs(
   return args;
 }
 
+interface ContainerLogOpts {
+  group: RegisteredGroup;
+  input: ContainerInput;
+  containerArgs: string[];
+  mounts: VolumeMount[];
+  duration: number;
+  code: number | null;
+  stdout: string;
+  stderr: string;
+  stdoutTruncated: boolean;
+  stderrTruncated: boolean;
+}
+
+function buildContainerLog(opts: ContainerLogOpts): string[] {
+  const {
+    group,
+    input,
+    containerArgs,
+    mounts,
+    duration,
+    code,
+    stdout,
+    stderr,
+    stdoutTruncated,
+    stderrTruncated,
+  } = opts;
+
+  const lines = [
+    `=== Container Run Log ===`,
+    `Timestamp: ${new Date().toISOString()}`,
+    `Group: ${group.name}`,
+    `IsMain: ${input.isMain}`,
+    `Duration: ${duration}ms`,
+    `Exit Code: ${code}`,
+    `Stdout Truncated: ${stdoutTruncated}`,
+    `Stderr Truncated: ${stderrTruncated}`,
+    ``,
+  ];
+
+  const isVerbose =
+    process.env.LOG_LEVEL === 'debug' || process.env.LOG_LEVEL === 'trace';
+  const isError = code !== 0;
+
+  if (isVerbose || isError) {
+    lines.push(
+      `=== Input ===`,
+      JSON.stringify(input, null, 2),
+      ``,
+      `=== Container Args ===`,
+      containerArgs.join(' '),
+      ``,
+      `=== Mounts ===`,
+      mounts
+        .map(
+          (m) =>
+            `${m.hostPath} -> ${m.containerPath}${m.readonly ? ' (ro)' : ''}`,
+        )
+        .join('\n'),
+      ``,
+      `=== Stderr${stderrTruncated ? ' (TRUNCATED)' : ''} ===`,
+      stderr,
+      ``,
+      `=== Stdout${stdoutTruncated ? ' (TRUNCATED)' : ''} ===`,
+      stdout,
+    );
+  } else {
+    lines.push(
+      `=== Input Summary ===`,
+      `Prompt length: ${input.prompt.length} chars`,
+      `Session ID: ${input.sessionId || 'new'}`,
+      ``,
+      `=== Mounts ===`,
+      mounts.map((m) => `${m.containerPath}${m.readonly ? ' (ro)' : ''}`).join('\n'),
+      ``,
+    );
+  }
+
+  return lines;
+}
+
 export async function runContainerAgent(
   group: RegisteredGroup,
   input: ContainerInput,
@@ -490,61 +570,22 @@ export async function runContainerAgent(
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const logFile = path.join(logsDir, `container-${timestamp}.log`);
-      const isVerbose =
-        process.env.LOG_LEVEL === 'debug' || process.env.LOG_LEVEL === 'trace';
 
-      const logLines = [
-        `=== Container Run Log ===`,
-        `Timestamp: ${new Date().toISOString()}`,
-        `Group: ${group.name}`,
-        `IsMain: ${input.isMain}`,
-        `Duration: ${duration}ms`,
-        `Exit Code: ${code}`,
-        `Stdout Truncated: ${stdoutTruncated}`,
-        `Stderr Truncated: ${stderrTruncated}`,
-        ``,
-      ];
-
-      const isError = code !== 0;
-
-      if (isVerbose || isError) {
-        logLines.push(
-          `=== Input ===`,
-          JSON.stringify(input, null, 2),
-          ``,
-          `=== Container Args ===`,
-          containerArgs.join(' '),
-          ``,
-          `=== Mounts ===`,
-          mounts
-            .map(
-              (m) =>
-                `${m.hostPath} -> ${m.containerPath}${m.readonly ? ' (ro)' : ''}`,
-            )
-            .join('\n'),
-          ``,
-          `=== Stderr${stderrTruncated ? ' (TRUNCATED)' : ''} ===`,
-          stderr,
-          ``,
-          `=== Stdout${stdoutTruncated ? ' (TRUNCATED)' : ''} ===`,
-          stdout,
-        );
-      } else {
-        logLines.push(
-          `=== Input Summary ===`,
-          `Prompt length: ${input.prompt.length} chars`,
-          `Session ID: ${input.sessionId || 'new'}`,
-          ``,
-          `=== Mounts ===`,
-          mounts
-            .map((m) => `${m.containerPath}${m.readonly ? ' (ro)' : ''}`)
-            .join('\n'),
-          ``,
-        );
-      }
+      const logLines = buildContainerLog({
+        group,
+        input,
+        containerArgs,
+        mounts,
+        duration,
+        code,
+        stdout,
+        stderr,
+        stdoutTruncated,
+        stderrTruncated,
+      });
 
       fs.writeFileSync(logFile, logLines.join('\n'));
-      logger.debug({ logFile, verbose: isVerbose }, 'Container log written');
+      logger.debug({ logFile }, 'Container log written');
 
       if (code !== 0) {
         logger.error(
