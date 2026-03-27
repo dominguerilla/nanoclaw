@@ -109,13 +109,18 @@ function prepareGroupSessionDir(groupFolder: string): string {
   return groupSessionsDir;
 }
 
-function buildVolumeMounts(
-  group: RegisteredGroup,
+/**
+ * Build the workspace mounts that differ between main and non-main groups.
+ *
+ * Main:     read-only project root (with .env shadowed) + writable group folder.
+ * Non-main: writable group folder + read-only global memory directory.
+ */
+function mountWorkspaceFiles(
+  groupDir: string,
+  projectRoot: string,
   isMain: boolean,
 ): VolumeMount[] {
   const mounts: VolumeMount[] = [];
-  const projectRoot = process.cwd();
-  const groupDir = resolveGroupFolderPath(group.folder);
 
   if (isMain) {
     // Main gets the project root read-only. Writable paths the agent needs
@@ -165,6 +170,21 @@ function buildVolumeMounts(
       });
     }
   }
+
+  return mounts;
+}
+
+function buildVolumeMounts(
+  group: RegisteredGroup,
+  isMain: boolean,
+): VolumeMount[] {
+  const mounts: VolumeMount[] = [];
+  const projectRoot = process.cwd();
+  const groupDir = resolveGroupFolderPath(group.folder);
+
+  // Workspace files differ between main (project root + group) and
+  // non-main (group only + global memory) — see mountWorkspaceFiles()
+  mounts.push(...mountWorkspaceFiles(groupDir, projectRoot, isMain));
 
   // Per-group Claude sessions directory (isolated from other groups)
   // Each group gets their own .claude/ to prevent cross-group session access
