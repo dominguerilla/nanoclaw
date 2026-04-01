@@ -417,6 +417,36 @@ function parseOutputMarkers(
   return { remainder: buf, outputs };
 }
 
+/**
+ * Append a streaming chunk to a bounded accumulation buffer.
+ *
+ * Once the buffer reaches maxSize, subsequent chunks are dropped and
+ * a one-time warning is logged. Returns the updated accumulated string
+ * and truncation flag so the caller can update its outer state.
+ */
+function accumulateChunk(
+  accumulated: string,
+  isTruncated: boolean,
+  chunk: string,
+  maxSize: number,
+  streamLabel: string,
+  groupName: string,
+): { accumulated: string; isTruncated: boolean } {
+  if (isTruncated) return { accumulated, isTruncated };
+  const remaining = maxSize - accumulated.length;
+  if (chunk.length > remaining) {
+    logger.warn(
+      { group: groupName, size: accumulated.length + remaining },
+      `Container ${streamLabel} truncated due to size limit`,
+    );
+    return {
+      accumulated: accumulated + chunk.slice(0, remaining),
+      isTruncated: true,
+    };
+  }
+  return { accumulated: accumulated + chunk, isTruncated: false };
+}
+
 export async function runContainerAgent(
   group: RegisteredGroup,
   input: ContainerInput,
@@ -483,19 +513,14 @@ export async function runContainerAgent(
       const chunk = data.toString();
 
       // Always accumulate for logging
-      if (!stdoutTruncated) {
-        const remaining = CONTAINER_MAX_OUTPUT_SIZE - stdout.length;
-        if (chunk.length > remaining) {
-          stdout += chunk.slice(0, remaining);
-          stdoutTruncated = true;
-          logger.warn(
-            { group: group.name, size: stdout.length },
-            'Container stdout truncated due to size limit',
-          );
-        } else {
-          stdout += chunk;
-        }
-      }
+      ({ accumulated: stdout, isTruncated: stdoutTruncated } = accumulateChunk(
+        stdout,
+        stdoutTruncated,
+        chunk,
+        CONTAINER_MAX_OUTPUT_SIZE,
+        'stdout',
+        group.name,
+      ));
 
       // Stream-parse for output markers
       if (onOutput) {
@@ -534,18 +559,14 @@ export async function runContainerAgent(
       }
       // Don't reset timeout on stderr — SDK writes debug logs continuously.
       // Timeout only resets on actual output (OUTPUT_MARKER in stdout).
-      if (stderrTruncated) return;
-      const remaining = CONTAINER_MAX_OUTPUT_SIZE - stderr.length;
-      if (chunk.length > remaining) {
-        stderr += chunk.slice(0, remaining);
-        stderrTruncated = true;
-        logger.warn(
-          { group: group.name, size: stderr.length },
-          'Container stderr truncated due to size limit',
-        );
-      } else {
-        stderr += chunk;
-      }
+      ({ accumulated: stderr, isTruncated: stderrTruncated } = accumulateChunk(
+        stderr,
+        stderrTruncated,
+        chunk,
+        CONTAINER_MAX_OUTPUT_SIZE,
+        'stderr',
+        group.name,
+      ));
     });
 
     let timedOut = false;
