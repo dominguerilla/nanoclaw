@@ -378,6 +378,45 @@ function buildContainerLog(opts: ContainerLogOpts): string[] {
   return lines;
 }
 
+/**
+ * Scan `buffer + chunk` for complete OUTPUT_START/END marker pairs and
+ * return every successfully parsed ContainerOutput plus the unconsumed
+ * remainder of the buffer (i.e. any partial pair still waiting for more data).
+ *
+ * Keeping parsing logic here (string manipulation, JSON parse, error logging)
+ * separate from the caller's side-effects (session ID, timeout reset, chain).
+ */
+function parseOutputMarkers(
+  buffer: string,
+  chunk: string,
+  startMarker: string,
+  endMarker: string,
+  groupName: string,
+): { remainder: string; outputs: ContainerOutput[] } {
+  let buf = buffer + chunk;
+  const outputs: ContainerOutput[] = [];
+
+  let startIdx: number;
+  while ((startIdx = buf.indexOf(startMarker)) !== -1) {
+    const endIdx = buf.indexOf(endMarker, startIdx);
+    if (endIdx === -1) break; // Incomplete pair — wait for more data
+
+    const jsonStr = buf.slice(startIdx + startMarker.length, endIdx).trim();
+    buf = buf.slice(endIdx + endMarker.length);
+
+    try {
+      outputs.push(JSON.parse(jsonStr) as ContainerOutput);
+    } catch (err) {
+      logger.warn(
+        { group: groupName, error: err },
+        'Failed to parse streamed output chunk',
+      );
+    }
+  }
+
+  return { remainder: buf, outputs };
+}
+
 export async function runContainerAgent(
   group: RegisteredGroup,
   input: ContainerInput,
@@ -460,34 +499,24 @@ export async function runContainerAgent(
 
       // Stream-parse for output markers
       if (onOutput) {
-        parseBuffer += chunk;
-        let startIdx: number;
-        while ((startIdx = parseBuffer.indexOf(OUTPUT_START_MARKER)) !== -1) {
-          const endIdx = parseBuffer.indexOf(OUTPUT_END_MARKER, startIdx);
-          if (endIdx === -1) break; // Incomplete pair, wait for more data
-
-          const jsonStr = parseBuffer
-            .slice(startIdx + OUTPUT_START_MARKER.length, endIdx)
-            .trim();
-          parseBuffer = parseBuffer.slice(endIdx + OUTPUT_END_MARKER.length);
-
-          try {
-            const parsed: ContainerOutput = JSON.parse(jsonStr);
-            if (parsed.newSessionId) {
-              newSessionId = parsed.newSessionId;
-            }
-            hadStreamingOutput = true;
-            // Activity detected — reset the hard timeout
-            resetTimeout();
-            // Call onOutput for all markers (including null results)
-            // so idle timers start even for "silent" query completions.
-            outputChain = outputChain.then(() => onOutput(parsed));
-          } catch (err) {
-            logger.warn(
-              { group: group.name, error: err },
-              'Failed to parse streamed output chunk',
-            );
+        const { remainder, outputs } = parseOutputMarkers(
+          parseBuffer,
+          chunk,
+          OUTPUT_START_MARKER,
+          OUTPUT_END_MARKER,
+          group.name,
+        );
+        parseBuffer = remainder;
+        for (const parsed of outputs) {
+          if (parsed.newSessionId) {
+            newSessionId = parsed.newSessionId;
           }
+          hadStreamingOutput = true;
+          // Activity detected — reset the hard timeout
+          resetTimeout();
+          // Call onOutput for all markers (including null results)
+          // so idle timers start even for "silent" query completions.
+          outputChain = outputChain.then(() => onOutput(parsed));
         }
       }
     });
