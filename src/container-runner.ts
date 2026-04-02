@@ -447,6 +447,44 @@ function accumulateChunk(
   return { accumulated: accumulated + chunk, isTruncated: false };
 }
 
+/**
+ * Set up the hard-kill timeout for a container run.
+ *
+ * Returns a handle with three members:
+ *  - `timedOut`  — true once the timeout has fired (read by the close handler)
+ *  - `reset()`   — call on streaming activity to push the deadline forward
+ *  - `clear()`   — call in the close handler to cancel the pending timer
+ *
+ * The caller supplies `onKill` which does the actual process termination;
+ * the handle only manages the timer state and the `timedOut` flag.
+ */
+function buildContainerTimeout(
+  timeoutMs: number,
+  onKill: () => void,
+): { timedOut: boolean; reset: () => void; clear: () => void } {
+  let _timedOut = false;
+
+  const fire = () => {
+    _timedOut = true;
+    onKill();
+  };
+
+  let timer = setTimeout(fire, timeoutMs);
+
+  return {
+    get timedOut() {
+      return _timedOut;
+    },
+    reset() {
+      clearTimeout(timer);
+      timer = setTimeout(fire, timeoutMs);
+    },
+    clear() {
+      clearTimeout(timer);
+    },
+  };
+}
+
 export async function runContainerAgent(
   group: RegisteredGroup,
   input: ContainerInput,
@@ -538,7 +576,7 @@ export async function runContainerAgent(
           }
           hadStreamingOutput = true;
           // Activity detected — reset the hard timeout
-          resetTimeout();
+          containerTimer.reset();
           // Call onOutput for all markers (including null results)
           // so idle timers start even for "silent" query completions.
           outputChain = outputChain.then(() => onOutput(parsed));
@@ -569,15 +607,13 @@ export async function runContainerAgent(
       ));
     });
 
-    let timedOut = false;
     let hadStreamingOutput = false;
     const configTimeout = group.containerConfig?.timeout || CONTAINER_TIMEOUT;
     // Grace period: hard timeout must be at least IDLE_TIMEOUT + 30s so the
     // graceful _close sentinel has time to trigger before the hard kill fires.
     const timeoutMs = Math.max(configTimeout, IDLE_TIMEOUT + 30_000);
 
-    const killOnTimeout = () => {
-      timedOut = true;
+    const containerTimer = buildContainerTimeout(timeoutMs, () => {
       logger.error(
         { group: group.name, containerName },
         'Container timeout, stopping gracefully',
@@ -591,21 +627,13 @@ export async function runContainerAgent(
           container.kill('SIGKILL');
         }
       });
-    };
-
-    let timeout = setTimeout(killOnTimeout, timeoutMs);
-
-    // Reset the timeout whenever there's activity (streaming output)
-    const resetTimeout = () => {
-      clearTimeout(timeout);
-      timeout = setTimeout(killOnTimeout, timeoutMs);
-    };
+    });
 
     container.on('close', (code) => {
-      clearTimeout(timeout);
+      containerTimer.clear();
       const duration = Date.now() - startTime;
 
-      if (timedOut) {
+      if (containerTimer.timedOut) {
         const ts = new Date().toISOString().replace(/[:.]/g, '-');
         const timeoutLog = path.join(logsDir, `container-${ts}.log`);
         fs.writeFileSync(
@@ -758,7 +786,7 @@ export async function runContainerAgent(
     });
 
     container.on('error', (err) => {
-      clearTimeout(timeout);
+      containerTimer.clear();
       logger.error(
         { group: group.name, containerName, error: err },
         'Container spawn error',
