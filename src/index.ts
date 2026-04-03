@@ -56,6 +56,7 @@ import {
   isTriggerAllowed,
   loadSenderAllowlist,
   shouldDropMessage,
+  SenderAllowlistConfig,
 } from './sender-allowlist.js';
 import { startSchedulerLoop } from './task-scheduler.js';
 import { startStatusWriter } from './status-writer.js';
@@ -149,6 +150,23 @@ export function _setRegisteredGroups(
  * Process all pending messages for a group.
  * Called by the GroupQueue when it's this group's turn.
  */
+/**
+ * Return true if any message in the batch qualifies as a trigger.
+ * A message triggers if it matches TRIGGER_PATTERN and either came
+ * from the assistant itself or from an allowlisted sender.
+ */
+function messagesContainTrigger(
+  messages: NewMessage[],
+  chatJid: string,
+  allowlistCfg: SenderAllowlistConfig,
+): boolean {
+  return messages.some(
+    (m) =>
+      TRIGGER_PATTERN.test(m.content.trim()) &&
+      (m.is_from_me || isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
+  );
+}
+
 async function processGroupMessages(chatJid: string): Promise<boolean> {
   const group = registeredGroups[chatJid];
   if (!group) return true;
@@ -172,13 +190,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   // For non-main groups, check if trigger is required and present
   if (!isMainGroup && group.requiresTrigger !== false) {
-    const allowlistCfg = loadSenderAllowlist();
-    const hasTrigger = missedMessages.some(
-      (m) =>
-        TRIGGER_PATTERN.test(m.content.trim()) &&
-        (m.is_from_me || isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
-    );
-    if (!hasTrigger) return true;
+    if (!messagesContainTrigger(missedMessages, chatJid, loadSenderAllowlist()))
+      return true;
   }
 
   const prompt = formatMessages(missedMessages, TIMEZONE);
@@ -399,16 +412,15 @@ async function startMessageLoop(): Promise<void> {
           // For non-main groups, only act on trigger messages.
           // Non-trigger messages accumulate in DB and get pulled as
           // context when a trigger eventually arrives.
-          if (needsTrigger) {
-            const allowlistCfg = loadSenderAllowlist();
-            const hasTrigger = groupMessages.some(
-              (m) =>
-                TRIGGER_PATTERN.test(m.content.trim()) &&
-                (m.is_from_me ||
-                  isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
-            );
-            if (!hasTrigger) continue;
-          }
+          if (
+            needsTrigger &&
+            !messagesContainTrigger(
+              groupMessages,
+              chatJid,
+              loadSenderAllowlist(),
+            )
+          )
+            continue;
 
           // Pull all messages since lastAgentTimestamp so non-trigger
           // context that accumulated between triggers is included.
