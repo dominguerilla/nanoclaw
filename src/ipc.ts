@@ -26,6 +26,22 @@ export interface IpcDeps {
 
 let ipcWatcherRunning = false;
 
+/**
+ * Move a malformed or unprocessable IPC file into the shared errors/
+ * directory so it doesn't block future poll cycles. The renamed file
+ * includes the source group prefix for easier debugging.
+ */
+function quarantineIpcFile(
+  filePath: string,
+  sourceGroup: string,
+  ipcBaseDir: string,
+): void {
+  const file = path.basename(filePath);
+  const errorDir = path.join(ipcBaseDir, 'errors');
+  fs.mkdirSync(errorDir, { recursive: true });
+  fs.renameSync(filePath, path.join(errorDir, `${sourceGroup}-${file}`));
+}
+
 export function startIpcWatcher(deps: IpcDeps): void {
   if (ipcWatcherRunning) {
     logger.debug('IPC watcher already running, skipping duplicate start');
@@ -98,12 +114,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 { file, sourceGroup, err },
                 'Error processing IPC message',
               );
-              const errorDir = path.join(ipcBaseDir, 'errors');
-              fs.mkdirSync(errorDir, { recursive: true });
-              fs.renameSync(
-                filePath,
-                path.join(errorDir, `${sourceGroup}-${file}`),
-              );
+              quarantineIpcFile(filePath, sourceGroup, ipcBaseDir);
             }
           }
         }
@@ -132,12 +143,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 { file, sourceGroup, err },
                 'Error processing IPC task',
               );
-              const errorDir = path.join(ipcBaseDir, 'errors');
-              fs.mkdirSync(errorDir, { recursive: true });
-              fs.renameSync(
-                filePath,
-                path.join(errorDir, `${sourceGroup}-${file}`),
-              );
+              quarantineIpcFile(filePath, sourceGroup, ipcBaseDir);
             }
           }
         }
