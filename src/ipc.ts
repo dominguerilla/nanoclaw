@@ -159,6 +159,26 @@ export function startIpcWatcher(deps: IpcDeps): void {
   logger.info('IPC watcher started (per-group namespaces)');
 }
 
+/**
+ * Fetch a task by ID and verify the requesting group is authorised to
+ * operate on it. Returns the task record when authorised, null otherwise.
+ * Logs a warning on unauthorised attempts.
+ */
+function lookupAuthorizedTask(
+  taskId: string | undefined,
+  sourceGroup: string,
+  isMain: boolean,
+  action: string,
+): ReturnType<typeof getTaskById> | null {
+  if (!taskId) return null;
+  const task = getTaskById(taskId);
+  if (task && (isMain || task.group_folder === sourceGroup)) {
+    return task;
+  }
+  logger.warn({ taskId, sourceGroup }, `Unauthorized task ${action} attempt`);
+  return null;
+}
+
 export async function processTaskIpc(
   data: {
     type: string;
@@ -279,59 +299,56 @@ export async function processTaskIpc(
       }
       break;
 
-    case 'pause_task':
-      if (data.taskId) {
-        const task = getTaskById(data.taskId);
-        if (task && (isMain || task.group_folder === sourceGroup)) {
-          updateTask(data.taskId, { status: 'paused' });
-          logger.info(
-            { taskId: data.taskId, sourceGroup },
-            'Task paused via IPC',
-          );
-        } else {
-          logger.warn(
-            { taskId: data.taskId, sourceGroup },
-            'Unauthorized task pause attempt',
-          );
-        }
+    case 'pause_task': {
+      const task = lookupAuthorizedTask(
+        data.taskId,
+        sourceGroup,
+        isMain,
+        'pause',
+      );
+      if (task) {
+        updateTask(data.taskId!, { status: 'paused' });
+        logger.info(
+          { taskId: data.taskId, sourceGroup },
+          'Task paused via IPC',
+        );
       }
       break;
+    }
 
-    case 'resume_task':
-      if (data.taskId) {
-        const task = getTaskById(data.taskId);
-        if (task && (isMain || task.group_folder === sourceGroup)) {
-          updateTask(data.taskId, { status: 'active' });
-          logger.info(
-            { taskId: data.taskId, sourceGroup },
-            'Task resumed via IPC',
-          );
-        } else {
-          logger.warn(
-            { taskId: data.taskId, sourceGroup },
-            'Unauthorized task resume attempt',
-          );
-        }
+    case 'resume_task': {
+      const task = lookupAuthorizedTask(
+        data.taskId,
+        sourceGroup,
+        isMain,
+        'resume',
+      );
+      if (task) {
+        updateTask(data.taskId!, { status: 'active' });
+        logger.info(
+          { taskId: data.taskId, sourceGroup },
+          'Task resumed via IPC',
+        );
       }
       break;
+    }
 
-    case 'cancel_task':
-      if (data.taskId) {
-        const task = getTaskById(data.taskId);
-        if (task && (isMain || task.group_folder === sourceGroup)) {
-          deleteTask(data.taskId);
-          logger.info(
-            { taskId: data.taskId, sourceGroup },
-            'Task cancelled via IPC',
-          );
-        } else {
-          logger.warn(
-            { taskId: data.taskId, sourceGroup },
-            'Unauthorized task cancel attempt',
-          );
-        }
+    case 'cancel_task': {
+      const task = lookupAuthorizedTask(
+        data.taskId,
+        sourceGroup,
+        isMain,
+        'cancel',
+      );
+      if (task) {
+        deleteTask(data.taskId!);
+        logger.info(
+          { taskId: data.taskId, sourceGroup },
+          'Task cancelled via IPC',
+        );
       }
       break;
+    }
 
     case 'update_task':
       if (data.taskId) {
