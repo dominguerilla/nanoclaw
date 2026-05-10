@@ -279,6 +279,19 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   return true;
 }
 
+/**
+ * Persist a new session ID to both the in-memory map and the database.
+ * Always update both together so the two stores stay in sync.
+ */
+function persistSessionId(
+  groupFolder: string,
+  newSessionId: string | undefined,
+): void {
+  if (!newSessionId) return;
+  sessions[groupFolder] = newSessionId;
+  setSession(groupFolder, newSessionId);
+}
+
 async function runAgent(
   group: RegisteredGroup,
   prompt: string,
@@ -316,10 +329,7 @@ async function runAgent(
   // Wrap onOutput to track session ID from streamed results
   const wrappedOnOutput = onOutput
     ? async (output: ContainerOutput) => {
-        if (output.newSessionId) {
-          sessions[group.folder] = output.newSessionId;
-          setSession(group.folder, output.newSessionId);
-        }
+        persistSessionId(group.folder, output.newSessionId);
         await onOutput(output);
       }
     : undefined;
@@ -340,10 +350,7 @@ async function runAgent(
       wrappedOnOutput,
     );
 
-    if (output.newSessionId) {
-      sessions[group.folder] = output.newSessionId;
-      setSession(group.folder, output.newSessionId);
-    }
+    persistSessionId(group.folder, output.newSessionId);
 
     if (output.status === 'error') {
       logger.error(
