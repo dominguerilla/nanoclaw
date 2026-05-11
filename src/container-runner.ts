@@ -26,6 +26,7 @@ import {
   stopContainer,
 } from './container-runtime.js';
 import { detectAuthMode } from './credential-proxy.js';
+import { getAllTasks } from './db.js';
 import { validateAdditionalMounts } from './mount-security.js';
 import { RegisteredGroup } from './types.js';
 
@@ -824,6 +825,31 @@ export function writeTasksSnapshot(
 
   const tasksFile = path.join(groupIpcDir, 'current_tasks.json');
   fs.writeFileSync(tasksFile, JSON.stringify(filteredTasks, null, 2));
+}
+
+/**
+ * Fetch all tasks from the database and write the filtered snapshot for
+ * the given group. Combines getAllTasks() + writeTasksSnapshot() so
+ * callers don't need to inline the same mapping every time.
+ */
+export function writeCurrentTasksSnapshot(
+  groupFolder: string,
+  isMain: boolean,
+): void {
+  const tasks = getAllTasks();
+  writeTasksSnapshot(
+    groupFolder,
+    isMain,
+    tasks.map((t) => ({
+      id: t.id,
+      groupFolder: t.group_folder,
+      prompt: t.prompt,
+      schedule_type: t.schedule_type,
+      schedule_value: t.schedule_value,
+      status: t.status,
+      next_run: t.next_run,
+    })),
+  );
 }
 
 export interface AvailableGroup {

@@ -18,8 +18,8 @@ import {
 import {
   ContainerOutput,
   runContainerAgent,
+  writeCurrentTasksSnapshot,
   writeGroupsSnapshot,
-  writeTasksSnapshot,
 } from './container-runner.js';
 import {
   cleanupOrphans,
@@ -30,7 +30,6 @@ import {
   getAllChats,
   getAllRegisteredGroups,
   getAllSessions,
-  getAllTasks,
   getMessagesSince,
   getNewMessages,
   getRegisteredGroup,
@@ -302,20 +301,7 @@ async function runAgent(
   const sessionId = sessions[group.folder];
 
   // Update tasks snapshot for container to read (filtered by group)
-  const tasks = getAllTasks();
-  writeTasksSnapshot(
-    group.folder,
-    isMain,
-    tasks.map((t) => ({
-      id: t.id,
-      groupFolder: t.group_folder,
-      prompt: t.prompt,
-      schedule_type: t.schedule_type,
-      schedule_value: t.schedule_value,
-      status: t.status,
-      next_run: t.next_run,
-    })),
-  );
+  writeCurrentTasksSnapshot(group.folder, isMain);
 
   // Update available groups snapshot (main group only can see all groups)
   const availableGroups = getAvailableGroups();
