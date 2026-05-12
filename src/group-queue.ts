@@ -193,6 +193,20 @@ export class GroupQueue {
     }
   }
 
+  /**
+   * Release the concurrency slot held by a container run. Resets shared
+   * process state, decrements the active count, and triggers drain so the
+   * next pending work can start immediately.
+   */
+  private releaseSlot(groupJid: string, state: GroupState): void {
+    state.active = false;
+    state.process = null;
+    state.containerName = null;
+    state.groupFolder = null;
+    this.activeCount--;
+    this.drainGroup(groupJid);
+  }
+
   private async runForGroup(
     groupJid: string,
     reason: 'messages' | 'drain',
@@ -222,12 +236,7 @@ export class GroupQueue {
       logger.error({ groupJid, err }, 'Error processing messages for group');
       this.scheduleRetry(groupJid, state);
     } finally {
-      state.active = false;
-      state.process = null;
-      state.containerName = null;
-      state.groupFolder = null;
-      this.activeCount--;
-      this.drainGroup(groupJid);
+      this.releaseSlot(groupJid, state);
     }
   }
 
@@ -249,14 +258,9 @@ export class GroupQueue {
     } catch (err) {
       logger.error({ groupJid, taskId: task.id, err }, 'Error running task');
     } finally {
-      state.active = false;
       state.isTaskContainer = false;
       state.runningTaskId = null;
-      state.process = null;
-      state.containerName = null;
-      state.groupFolder = null;
-      this.activeCount--;
-      this.drainGroup(groupJid);
+      this.releaseSlot(groupJid, state);
     }
   }
 
