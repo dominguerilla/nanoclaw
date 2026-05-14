@@ -223,8 +223,11 @@ export class TelegramChannel implements Channel {
       logger.error({ err: err.message }, 'Telegram bot error');
     });
 
-    // Start polling — returns a Promise that resolves when started
-    return new Promise<void>((resolve) => {
+    // Start polling — resolves when connected, or after 30s timeout so a
+    // transient network outage at startup doesn't block the whole service.
+    // grammY keeps retrying internally even after the timeout fires.
+    const CONNECT_TIMEOUT_MS = 30_000;
+    const connected = new Promise<void>((resolve) => {
       this.bot!.start({
         onStart: (botInfo) => {
           logger.info(
@@ -239,6 +242,16 @@ export class TelegramChannel implements Channel {
         },
       });
     });
+    const timeout = new Promise<void>((resolve) => {
+      setTimeout(() => {
+        logger.warn(
+          { timeoutMs: CONNECT_TIMEOUT_MS },
+          'Telegram bot startup timed out — will keep retrying in background',
+        );
+        resolve();
+      }, CONNECT_TIMEOUT_MS);
+    });
+    return Promise.race([connected, timeout]);
   }
 
   async sendMessage(jid: string, text: string): Promise<void> {
