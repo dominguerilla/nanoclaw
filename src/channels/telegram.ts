@@ -1,5 +1,5 @@
 import https from 'https';
-import { Api, Bot } from 'grammy';
+import { Api, Bot, Context, Filter } from 'grammy';
 
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
 import { readEnvFile } from '../env.js';
@@ -166,7 +166,10 @@ export class TelegramChannel implements Channel {
     });
 
     // Handle non-text messages with placeholders so the agent knows something was sent
-    const storeNonText = (ctx: any, placeholder: string) => {
+    const storeNonText = (
+      ctx: Filter<Context, 'message'>,
+      placeholder: string,
+    ) => {
       const chatJid = `tg:${ctx.chat.id}`;
       const group = this.opts.registeredGroups()[chatJid];
       if (!group) return;
