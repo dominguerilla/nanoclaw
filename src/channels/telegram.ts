@@ -67,7 +67,9 @@ export class TelegramChannel implements Channel {
       const chatName =
         chatType === 'private'
           ? ctx.from?.first_name || 'Private'
-          : (ctx.chat as any).title || 'Unknown';
+          : 'title' in ctx.chat
+            ? ctx.chat.title
+            : 'Unknown';
 
       ctx.reply(
         `Chat ID: \`tg:${chatId}\`\nName: ${chatName}\nType: ${chatType}`,
@@ -105,7 +107,9 @@ export class TelegramChannel implements Channel {
       const chatName =
         ctx.chat.type === 'private'
           ? senderName
-          : (ctx.chat as any).title || chatJid;
+          : 'title' in ctx.chat
+            ? ctx.chat.title
+            : chatJid;
 
       // Translate Telegram @bot_username mentions into TRIGGER_PATTERN format.
       // Telegram @mentions (e.g., @andy_ai_bot) won't match TRIGGER_PATTERN
@@ -219,8 +223,11 @@ export class TelegramChannel implements Channel {
       logger.error({ err: err.message }, 'Telegram bot error');
     });
 
-    // Start polling — returns a Promise that resolves when started
-    return new Promise<void>((resolve) => {
+    // Start polling — resolves when connected, or after 30s timeout so a
+    // transient network outage at startup doesn't block the whole service.
+    // grammY keeps retrying internally even after the timeout fires.
+    const CONNECT_TIMEOUT_MS = 30_000;
+    const connected = new Promise<void>((resolve) => {
       this.bot!.start({
         onStart: (botInfo) => {
           logger.info(
@@ -235,6 +242,16 @@ export class TelegramChannel implements Channel {
         },
       });
     });
+    const timeout = new Promise<void>((resolve) => {
+      setTimeout(() => {
+        logger.warn(
+          { timeoutMs: CONNECT_TIMEOUT_MS },
+          'Telegram bot startup timed out — will keep retrying in background',
+        );
+        resolve();
+      }, CONNECT_TIMEOUT_MS);
+    });
+    return Promise.race([connected, timeout]);
   }
 
   async sendMessage(jid: string, text: string): Promise<void> {
