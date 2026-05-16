@@ -547,6 +547,7 @@ export async function runContainerAgent(
     let parseBuffer = '';
     let newSessionId: string | undefined;
     let outputChain = Promise.resolve();
+    let hadStreamingOutput = false;
 
     container.stdout.on('data', (data) => {
       const chunk = data.toString();
@@ -608,7 +609,6 @@ export async function runContainerAgent(
       ));
     });
 
-    let hadStreamingOutput = false;
     const configTimeout = group.containerConfig?.timeout || CONTAINER_TIMEOUT;
     // Grace period: hard timeout must be at least IDLE_TIMEOUT + 30s so the
     // graceful _close sentinel has time to trigger before the hard kill fires.
